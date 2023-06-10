@@ -89,7 +89,6 @@ def create_index_json_files(directory_path):
     except Exception as e:
         print("Error at indexing:", str(e))
 
-
 def order_posts(posts, query):
     ordered_posts = []
 
