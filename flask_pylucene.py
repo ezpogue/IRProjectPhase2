@@ -23,7 +23,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 #app = Flask(__name__)
 
 def create_index_json_files(directory_path):
-    analyzer = StandardAnalyzer()
+    analyzer = StandardAnalyzer(StandardAnalyzer.ENGLISH_STOP_WORDS_SET)
     config = IndexWriterConfig(analyzer)
     config.setOpenMode(IndexWriterConfig.OpenMode.CREATE)
     
@@ -79,7 +79,7 @@ def create_index_json_files(directory_path):
         timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")   # convert the timestamp string to datetime
 
         time_diff = (datetime.now() - timestamp).total_seconds() / 86400    # calculate the time difference in days
-        time_score = int(100 / (time_diff /30+ 1))                             # +1 to avoid division by 0
+        time_score = int(100 / (time_diff + 1))                             # +1 to avoid division by 0
 
         upvotes = int(post['Upvotes']) if post['Upvotes'] is not None else 0
 
@@ -94,11 +94,11 @@ def create_index_json_files(directory_path):
 
     return ordered_posts"""
     
-def order_posts(posts, query):
+def order_posts(posts, query, upvote_weight, time_weight, relevance_weight):
     ordered_posts = []
 
     # Calculate the query vector using TF-IDF
-    vectorizer = TfidfVectorizer()
+    vectorizer = TfidfVectorizer(stop_words='english')
     query_vector = vectorizer.fit_transform([query])
 
     for post in posts:
@@ -131,9 +131,8 @@ def order_posts(posts, query):
 
         upvotes = int(post['Upvotes']) if post['Upvotes'] is not None else 0
 
-        score = round(((upvotes / 10000) * 0.20) + (time_score * 0.10) + (relevance_score * 0.70), 4)
+        score = round(((upvotes / 1000) * upvote_weight) + (time_score * time_weight) + (relevance_score * relevance_weight), 3)
         ordered_posts.append((post, score))
-        print(score)
     ordered_posts.sort(key=lambda x: x[1], reverse=True)
 
     for post, score in ordered_posts[:10]:
@@ -199,7 +198,7 @@ if __name__ == "__main__":
     json_dir_path = '/home/cs172/IRProjectPhase2/doc_folder'
     path_obj = Paths.get(json_dir_path)
     #create_index_json_files(path_obj)
-    query = 'embarrassing'
+    query = "how to cook"
     posts = retrieve_posts_pylucene(path_obj, query)
-    fianl_result = order_posts(posts, query)
+    fianl_result = order_posts(posts, query, 0.2, 0.3, 0.5)
 
