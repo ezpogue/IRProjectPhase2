@@ -89,7 +89,7 @@ def create_index_json_files(directory_path):
     except Exception as e:
         print("Error at indexing:", str(e))
 
-
+##Previous order_post
 """def order_posts(posts, query):
     ordered_posts = []
 
@@ -230,5 +230,3 @@ if __name__ == "__main__":
     query = 'embarrassing'
     posts = retrieve_posts_pylucene(path_obj, query)
     fianl_result = order_posts(posts, query)
-
-
