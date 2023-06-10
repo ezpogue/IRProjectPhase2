@@ -11,7 +11,7 @@ from datetime import datetime
 from java.nio.file import Paths
 from org.apache.lucene.store import NIOFSDirectory, MMapDirectory, SimpleFSDirectory
 from org.apache.lucene.analysis.standard import StandardAnalyzer
-from org.apache.lucene.document import Document, Field, TextField, FieldType
+from org.apache.lucene.document import Document, Field, TextField, FieldType, StringField
 from org.apache.lucene.queryparser.classic import QueryParser, MultiFieldQueryParser
 from org.apache.lucene.index import IndexWriter, IndexWriterConfig, FieldInfo, IndexOptions, DirectoryReader, Term
 from org.apache.lucene.search import IndexSearcher, BoostQuery, Query, TermQuery
@@ -23,7 +23,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 #app = Flask(__name__)
 
 def create_index_json_files(directory_path):
-    analyzer = StandardAnalyzer(StandardAnalyzer.ENGLISH_STOP_WORDS_SET)
+    analyzer = StandardAnalyzer()
     config = IndexWriterConfig(analyzer)
     config.setOpenMode(IndexWriterConfig.OpenMode.CREATE)
     
@@ -43,20 +43,49 @@ def create_index_json_files(directory_path):
         for file_name in os.listdir(str(directory_path)):
             if file_name.endswith(".json"):
                 file_path = os.path.join(str(directory_path), file_name)
-                with open(file_path, "r") as json_file:
-                    for line in json_file:
+                with open(file_path, "r") as json_file:                        
+                    for line in json_file:   
                         json_data = json.loads(line)
                         doc = Document()
-                        #doc.add(Field("Author", json_data["Author"], TextField.TYPE_STORED))
-                        doc.add(Field("Timestamp", json_data["Timestamp"], TextField.TYPE_STORED))
-                        doc.add(Field("Body", json_data["Body"], TextField.TYPE_STORED))
-                        doc.add(Field("Upvotes", json_data["Upvotes"], TextField.TYPE_STORED))
-                        doc.add(Field("Title", json_data["Title"], TextField.TYPE_STORED))
+                        doc.add(Field("ID", json_data["ID"], metaType))
+                        doc.add(Field("Author", json_data["Author"], metaType))
+                        doc.add(Field("Title", json_data["Title"], contextType))
+                        doc.add(Field("Timestamp", json_data["Timestamp"], metaType))
+                        doc.add(Field("Body", json_data["Body"], contextType))
+                        doc.add(Field("Upvotes", json_data["Upvotes"], metaType))
+                        doc.add(Field("Ratio", json_data["Ratio"], metaType))
+                        doc.add(Field("Permalink", json_data["Permalink"], metaType))
+                        doc.add(Field("URL", json_data["URL"], metaType))
                         
+                        text_urls = []
+                        for text_url_data in json_data["Text URL"]:
+                            text_url = Document()
+                            text_url.add(Field("Title", text_url_data[0], contextType))
+                            text_url.add(Field("Link", text_url_data[1], metaType))
+                            text_urls.append(text_url)
+                        doc.add(Field("Text URL", text_urls, metaType))
+                        
+                        comments = []
+                        for comment_data in json_data["Comments"]:
+                            comment = Document()
+                            comment.add(Field("Author"), comment_data["Author"], metaType)
+                            comment.add(Field("Parent ID"), comment_data["Parent ID"], metaType)
+                            comment.add(Field("Body"), comment_data["Body"], contextType)
+                            comment.add(Field("Upvotes"), comment_data["Ups"], metaType)
+                            comment.add(Field("Downvotes"), comment_data["Downs"], metaType)
+                            comment.add(Field("Permalink"), comment_data["Permalink"], metaType)
+                            
+                            comment_text_urls = []
+                            for comment_text_url_data in json_data["Text URL"]:
+                                comment_text_url = Document()
+                                comment_text_url.add(Field("Title", comment_text_url_data[0], contextType))
+                                comment_text_url.add(Field("Link", comment_text_url_data[1], metaType))
+                                comment_text_urls.append(text_url)
+                            comment.add(Field("Text URL", text_urls, metaType))
+                        doc.add(Field("Comments", comments, metaType))
                         writer.addDocument(doc)
         writer.close()
         print("Index created.")
-
     except Exception as e:
         print("Error at indexing:", str(e))
 
@@ -79,7 +108,7 @@ def create_index_json_files(directory_path):
         timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")   # convert the timestamp string to datetime
 
         time_diff = (datetime.now() - timestamp).total_seconds() / 86400    # calculate the time difference in days
-        time_score = int(100 / (time_diff + 1))                             # +1 to avoid division by 0
+        time_score = int(100 / (time_diff /30+ 1))                             # +1 to avoid division by 0
 
         upvotes = int(post['Upvotes']) if post['Upvotes'] is not None else 0
 
@@ -98,7 +127,7 @@ def order_posts(posts, query, upvote_weight, time_weight, relevance_weight):
     ordered_posts = []
 
     # Calculate the query vector using TF-IDF
-    vectorizer = TfidfVectorizer(stop_words='english')
+    vectorizer = TfidfVectorizer()
     query_vector = vectorizer.fit_transform([query])
 
     for post in posts:
@@ -198,7 +227,8 @@ if __name__ == "__main__":
     json_dir_path = '/home/cs172/IRProjectPhase2/doc_folder'
     path_obj = Paths.get(json_dir_path)
     #create_index_json_files(path_obj)
-    query = "how to cook"
+    query = 'embarrassing'
     posts = retrieve_posts_pylucene(path_obj, query)
-    fianl_result = order_posts(posts, query, 0.2, 0.3, 0.5)
+    fianl_result = order_posts(posts, query)
+
 
