@@ -2,7 +2,6 @@
 ## flask run -h 0.0.0.0 -p 8888
 
 import logging, sys
-
 logging.disable(sys.maxsize)
 
 import os
@@ -17,16 +16,17 @@ from org.apache.lucene.queryparser.classic import QueryParser, MultiFieldQueryPa
 from org.apache.lucene.index import IndexWriter, IndexWriterConfig, FieldInfo, IndexOptions, DirectoryReader, Term
 from org.apache.lucene.search import IndexSearcher, BoostQuery, Query, TermQuery
 from org.apache.lucene.search.similarities import BM25Similarity
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-
-# from flask import request, Flask, render_template
-# app = Flask(__name__)
+#from flask import request, Flask, render_template
+#app = Flask(__name__)
 
 def create_index_json_files(directory_path):
     analyzer = StandardAnalyzer()
     config = IndexWriterConfig(analyzer)
     config.setOpenMode(IndexWriterConfig.OpenMode.CREATE)
-
+    
     metaType = FieldType()
     metaType.setStored(True)
     metaType.setTokenized(False)
@@ -90,7 +90,7 @@ def create_index_json_files(directory_path):
         print("Error at indexing:", str(e))
 
 
-def order_posts(posts, query):
+"""def order_posts(posts, query):
     ordered_posts = []
 
     for post in posts:
@@ -99,12 +99,16 @@ def order_posts(posts, query):
         if post['Title'] is not None:
             if query.lower() in post['Title'].lower():
                 relevance_score += post['Score']
+        
+        if post['Body'] is not None:
+            if query.lower() in post['Body'].lower():
+                relevance_score += post['Score']
 
         timestamp_str = post['Timestamp']
-        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")  # convert the timestamp string to datetime
+        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")   # convert the timestamp string to datetime
 
-        time_diff = (datetime.now() - timestamp).total_seconds() / 86400  # calculate the time difference in days
-        time_score = int(100 / (time_diff + 1))  # +1 to avoid division by 0
+        time_diff = (datetime.now() - timestamp).total_seconds() / 86400    # calculate the time difference in days
+        time_score = int(100 / (time_diff /30+ 1))                             # +1 to avoid division by 0
 
         upvotes = int(post['Upvotes']) if post['Upvotes'] is not None else 0
 
@@ -117,6 +121,52 @@ def order_posts(posts, query):
     for post, score in ordered_posts[:10]:
         print("Post: {}, Weighted Score: {}".format(post, score))
 
+    return ordered_posts"""
+    
+def order_posts(posts, query, upvote_weight, time_weight, relevance_weight):
+    ordered_posts = []
+
+    # Calculate the query vector using TF-IDF
+    vectorizer = TfidfVectorizer()
+    query_vector = vectorizer.fit_transform([query])
+
+    for post in posts:
+        relevance_score = post['Score'] if post['Score'] is not None else 0
+        title_similarity = 0
+        body_similarity = 0
+        if post['Title'] is not None:
+            if query.lower() in post['Title'].lower():
+                # Calculate the title vector using TF-IDF
+                title_vector = vectorizer.transform([post['Title']])
+                # Calculate the cosine similarity between query and title
+                title_similarity = cosine_similarity(query_vector, title_vector)[0][0]
+                # Update relevance score with title similarity
+                relevance_score += title_similarity * post['Score']
+
+        if post['Body'] is not None:
+            if query.lower() in post['Body'].lower():
+                # Calculate the body vector using TF-IDF
+                body_vector = vectorizer.transform([post['Body']])
+                # Calculate the cosine similarity between query and body
+                body_similarity = cosine_similarity(query_vector, body_vector)[0][0]
+                # Update relevance score with body similarity
+                relevance_score += body_similarity * post['Score']
+
+        timestamp_str = post['Timestamp']
+        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")   # convert the timestamp string to datetime
+
+        time_diff = (datetime.now() - timestamp).total_seconds() / 86400    # calculate the time difference in days
+        time_score = int(100 / (time_diff / 30 + 1))                        # +1 to avoid division by 0
+
+        upvotes = int(post['Upvotes']) if post['Upvotes'] is not None else 0
+
+        score = round(((upvotes / 1000) * upvote_weight) + (time_score * time_weight) + (relevance_score * relevance_weight), 3)
+        ordered_posts.append((post, score))
+    ordered_posts.sort(key=lambda x: x[1], reverse=True)
+
+    for post, score in ordered_posts[:10]:
+        print("Post: {}, Weighted Score: {}".format(post, score))
+
     return ordered_posts
 
 
@@ -125,22 +175,21 @@ def retrieve_posts_pylucene(storedir, query):
     searcher = IndexSearcher(DirectoryReader.open(searchDir))
 
     parser = MultiFieldQueryParser(['Title', 'Body'], StandardAnalyzer())
-    term = Term("Body", query)  # Create a Term object for the query string
-    termQuery = TermQuery(term)  # Create a TermQuery using the Term object
+    term = Term("Body", query)              # Create a Term object for the query string
+    termQuery = TermQuery(term)             # Create a TermQuery using the Term object
 
-    topDocs = searcher.search(termQuery, 30).scoreDocs  # get top 30 then select 10 highest weighted score posts
+    topDocs = searcher.search(termQuery, 30).scoreDocs     # get top 30 then select 10 highest weighted score posts
 
     top_results = []
     for hit in topDocs:
-        doc = searcher.doc(hit.doc)  # convert to Lucene Doc object
-        title = doc.get("Title")
+        doc = searcher.doc(hit.doc)                          # convert to Lucene Doc object
+        title = doc.get("Title")  
         body = doc.get("Body")
         votes = doc.get("Upvotes")
         timestamp = doc.get("Timestamp")
         top_results.append({"Score": hit.score, "Title": title, "Body": body, "Upvotes": votes, "Timestamp": timestamp})
-
+    
     return top_results
-
 
 '''
 @app.route("/")
@@ -166,19 +215,19 @@ def output():
         lucene.getVMEnv().attachCurrentThread()
         docs = retrieve('sample_lucene_index/', str(query))
         print(docs)
-
+        
         return render_template('output.html',lucene_output = docs)'''
 
 lucene.initVM(vmargs=['-Djava.awt.headless=true'])
 
 if __name__ == "__main__":
-    # app.run(debug=True)
+   # app.run(debug=True)
 
-    # change the path to dir later
+    #change the path to dir later
     json_dir_path = '/home/cs172/IRProjectPhase2/doc_folder'
     path_obj = Paths.get(json_dir_path)
-    # create_index_json_files(path_obj)
-    query = 'happy'
+    #create_index_json_files(path_obj)
+    query = 'embarrassing'
     posts = retrieve_posts_pylucene(path_obj, query)
     fianl_result = order_posts(posts, query)
 
