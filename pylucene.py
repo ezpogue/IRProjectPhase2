@@ -94,7 +94,7 @@ def create_index_json_files(directory_path):
 
     return ordered_posts"""
     
-def order_posts(posts, query):
+def order_posts(posts, query, upvote_weight, time_weight, relevance_weight):
     ordered_posts = []
 
     # Calculate the query vector using TF-IDF
@@ -131,7 +131,7 @@ def order_posts(posts, query):
 
         upvotes = int(post['Upvotes']) if post['Upvotes'] is not None else 0
 
-        score = round(((upvotes / 10000) * 0.20) + (time_score * 0.10) + (relevance_score * 0.70), 4)
+        score = round(((upvotes / 1000) * upvote_weight) + (time_score * time_weight) + (relevance_score * relevance_weight), 3)
         ordered_posts.append((post, score))
     ordered_posts.sort(key=lambda x: x[1], reverse=True)
 
