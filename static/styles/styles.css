@@ -1,12 +1,12 @@
 html {
-    background-color:black;
+    background-color:#22252b;
 }
 
 .headcontainer{
     display: flex;
-    background-color: black;
     align-items: center;
     justify-content: center;
+    gap: 20px;
 }
 
 .headcontainer h1{
@@ -14,20 +14,23 @@ html {
     color: white;
     text-align: left;
     font-size: 70px;
-    flex: auto;
 }
 
-.headcontainer img{
+.logo_container {
+    max-height: 90px;
+    max-width: 90px;
+}
+
+.logo_container img {
+    object-fit: contain;
     height: 90px;
-    width: 70px;
-    flex: auto;
-    vertical-align: center;
+    width: 90px;
+
 }
 
 .container{
     padding: 30px;
     margin: auto;
-    background-color: black;
     max-width: 1100px;
 }
 
@@ -35,7 +38,6 @@ html {
 .bar{
     margin: auto;
     display: flex;
-    height: 50px;
     max-width: 1000px;
 }
 
@@ -43,12 +45,12 @@ html {
     flex: 4;
     font-size: 40px;
     border-radius: 50px 0px 0px 50px;
-    padding-left: 10px;
+    padding-left: 20px;
 }
 
 .bar button{
-    flex: 1;
     background-color: #FF4500;
+    flex: 1;
     vertical-align: center;
     border-radius: 0px 50px 50px 0px;
 }
@@ -96,6 +98,43 @@ body{
 }
 
 .results{
-    margin-left: 200px;
+    color: white;
+    font-family: verdana, arial, helvetica, sans-serif;
+    margin: 20px;
+}
+
+.results p{
+    white-space:pre-wrap;
+    background-color: #545452;
+    padding: 20px;
+    border-radius: 20px;
+}
+
+.results a:link{
+    color: white;
+}
+
+.results a:visited{
+    color: lightgrey;
+}
+
+.results a:hover{
+    color: white;
+}
+
+.results a:active{
+    color: white;
+}
+
+#upvotes{
+    color:#FF4500;
+}
+#radio-container{
+    display: flex;
+    flex-direction: column;
+    height: fit-content;
+}
+
+.selector{
     color: white;
 }

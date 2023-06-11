@@ -7,13 +7,26 @@
 		<title>Reddit Search</title>
 	</head>
 	<div class="headcontainer">
-		<img src="{{ url_for('static', filename='reddit-4.svg')}}">
+		<div class="logo_container">
+			<img src="{{ url_for('static', filename='reddit-4.svg')}}">
+		</div>
 		<h1>Reddit Search</h1>
 	</div>
 	<body class="container">
 		<form class="bar" method="POST">
 			<input type="search" placeholder="Search..." name="query">
 			<button type="submit"><img src="{{ url_for('static', filename='icons8-search.svg')}}"></button>
+			<div id="radio-container">
+				<div class="input-selector">
+					<input type="radio" name="sort" value="relevance" checked ="true"><label  for="relevance" class="selector">Relevance</label><br>
+				</div>
+				<div class="input-selector">
+					<input type="radio" name="sort" value="upvotes"><label for="upvotes" class="selector">Upvotes</label><br>
+				</div>
+				<div class="input-selector">
+					<input type="radio" name="sort" value="time"><label for="time" class="selector">Time</label><br>
+				</div>
+			</div>
 		</form>
 	</body>
 </html>

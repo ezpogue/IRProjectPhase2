@@ -2,7 +2,7 @@
 ## flask run -h 0.0.0.0 -p 8888
 
 import logging, sys
-logging.disable(sys.maxsize)
+#logging.disable(sys.maxsize)
 
 import os
 import json
@@ -20,9 +20,7 @@ from org.apache.lucene.search import IndexSearcher, BoostQuery, Query, TermQuery
 from org.apache.lucene.search.similarities import BM25Similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-
-#from flask import request, Flask, render_template
-#app = Flask(__name__)
+from flask import Flask, render_template, request
 
 def create_index_json_files(directory_path):
     analyzer = StandardAnalyzer()
@@ -84,45 +82,11 @@ def create_index_json_files(directory_path):
         print("Index created.")
     except Exception as e:
         print("Error at indexing:", str(e))
-
-##Previous order_post
-"""def order_posts(posts, query):
-    ordered_posts = []
-
-    for post in posts:
-        relevance_score = post['Score'] if post['Score'] is not None else 0
-
-        if post['Title'] is not None:
-            if query.lower() in post['Title'].lower():
-                relevance_score += post['Score']
-        
-        if post['Body'] is not None:
-            if query.lower() in post['Body'].lower():
-                relevance_score += post['Score']
-
-        timestamp_str = post['Timestamp']
-        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")   # convert the timestamp string to datetime
-
-        time_diff = (datetime.now() - timestamp).total_seconds() / 86400    # calculate the time difference in days
-        time_score = int(100 / (time_diff + 1))                             # +1 to avoid division by 0
-
-        upvotes = int(post['Upvotes']) if post['Upvotes'] is not None else 0
-
-        score = round((upvotes / 100 * 0.20) + (time_score * 0.30) + (relevance_score * 0.5), 3)
-        ordered_posts.append((post, score))
-
-    ordered_posts.sort(key=lambda x: x[1], reverse=True)
-
-    # cancel this output later
-    for post, score in ordered_posts[:10]:
-        print("Post: {}, Weighted Score: {}".format(post, score))
-
-    return ordered_posts"""
     
 def order_posts(posts, query, upvote_weight, time_weight, relevance_weight):
     ordered_posts = []
-    title_weight = 0.3
-    body_weight = 0.6
+    title_weight = 0.2
+    body_weight = 0.7
     comment_weight = 0.1
 
     vectorizer = TfidfVectorizer(stop_words='english')
@@ -155,7 +119,7 @@ def order_posts(posts, query, upvote_weight, time_weight, relevance_weight):
                 comment_vector = vectorizer.transform([flatten_comment_body])
                 comment_similarity = cosine_similarity(query_vector, comment_vector)[0][0]
                 relevance_score += comment_weight * comment_similarity * post['Score']
-
+                
         timestamp_str = post['Timestamp']
         timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
 
@@ -174,33 +138,6 @@ def order_posts(posts, query, upvote_weight, time_weight, relevance_weight):
 
     return ordered_posts
 
-'''
-def retrieve_posts_pylucene(storedir, query):
-    analyzer = StandardAnalyzer()
-    searchDir = NIOFSDirectory(storedir)
-    searcher = IndexSearcher(DirectoryReader.open(searchDir))
-
-    
-    
-    print(tokens)
-    boolean_query = BooleanQuery.Builder()
-    
-    
-    topDocs = searcher.search(termQuery, 30).scoreDocs     # get top 30 then select 10 highest weighted score posts
-
-    top_results = []
-    for hit in topDocs:
-        doc = searcher.doc(hit.doc)                          # convert to Lucene Doc object
-        title = doc.get("Title")  
-        body = doc.get("Body")
-        votes = doc.get("Upvotes")
-        timestamp = doc.get("Timestamp")
-        top_results.append({"Score": hit.score, "Title": title, "Body": body, "Upvotes": votes, "Timestamp": timestamp})
-    
-    return top_results
-'''
-
-
 def retrieve_posts_pylucene(storedir, query):
     searchDir = NIOFSDirectory(storedir)
     searcher = IndexSearcher(DirectoryReader.open(searchDir))
@@ -211,66 +148,60 @@ def retrieve_posts_pylucene(storedir, query):
     query_terms = query.split()
     boolean_query = BooleanQuery.Builder()
     
+    title_weight = 0.5
+    body_weight = 0.4
+    comment_weight = 0.1
     for term in query_terms:
-        term_query = TermQuery(Term("Title", term))
-        boolean_query.add(term_query, BooleanClause.Occur.SHOULD)
-        term_query = TermQuery(Term("Body", term))
-        boolean_query.add(term_query, BooleanClause.Occur.SHOULD)
-        term_query = TermQuery(Term("Comment", term))
-        boolean_query.add(term_query, BooleanClause.Occur.SHOULD)
-
+        title_query = TermQuery(Term("Title", term))
+        body_query = TermQuery(Term("Body", term))
+        comment_query = TermQuery(Term("Comment", term))
+        
+        boost_title_query = BoostQuery(title_query, title_weight)
+        boost_body_query = BoostQuery(body_query, body_weight)
+        boost_comment_query = BoostQuery(comment_query, comment_weight)
+        
+        boolean_query.add(boost_title_query, BooleanClause.Occur.SHOULD)
+        boolean_query.add(boost_body_query, BooleanClause.Occur.SHOULD)
+        boolean_query.add(boost_comment_query, BooleanClause.Occur.SHOULD)
     topDocs = searcher.search(boolean_query.build(), 100).scoreDocs
 
     top_results = []
     for hit in topDocs:
         doc = searcher.doc(hit.doc)
-        title = doc.get("Title")  
+        title = doc.get("Title")
         body = doc.get("Body")
         votes = doc.get("Upvotes")
         timestamp = doc.get("Timestamp")
-        top_results.append({"Score": hit.score, "Title": title, "Body": body, "Upvotes": votes, "Timestamp": timestamp})
+        URL = doc.get("URL")
+        Text_URL = doc.get("Text URL")
+        top_results.append({"Score": hit.score, "Title": title, "Body": body, "Upvotes": votes, "Timestamp": timestamp, "URL": URL, "Text URL": Text_URL})
     return top_results
 
 
+app = Flask(__name__)
 
-'''
-@app.route("/")
-def home():
-    return 'CS172 Project Phase 2'
+lucene.initVM(vmargs=['-Djava.awt.headless=true'])    
+json_dir_path = '/home/cs172/IRProjectPhase2/doc_folder'
+path_obj = Paths.get(json_dir_path)
+create_index_json_files(path_obj)
 
-@app.route("/abc")
-def abc():
-    return 'hello'
+weights = {'relevance':(0.1, 0.1, 0.8), 'upvotes':(0.8, 0.1, 0.1), 'time':(0.1, 0.8, 0.1)}
 
-@app.route('/input', methods = ['POST', 'GET'])
-def search():
+@app.route('/')
+def start():
     return render_template('search.html')
 
-@app.route('/output', methods = ['POST', 'GET'])
-def output():
-    if request.method == 'GET':
-        return f"Nothing"
+@app.route('/', methods = ['GET', 'POST'])
+def query():
     if request.method == 'POST':
-        form_data = request.form
-        query = form_data['query']
-        print(f"this is the query: {query}")
+        query = request.form['query']
+        query = query.strip()
+        sort = request.form['sort']
         lucene.getVMEnv().attachCurrentThread()
-        docs = retrieve('sample_lucene_index/', str(query))
-        print(docs)
-        
-        return render_template('output.html',lucene_output = docs)'''
+        posts = retrieve_posts_pylucene(path_obj, query)
+        results = order_posts(posts, query, weights[sort][0], weights[sort][1], weights[sort][2])
+        return render_template('result.html', results = results, length = min(len(results), 10))
+    return render_template('search.html')
 
-lucene.initVM(vmargs=['-Djava.awt.headless=true'])
-
-if __name__ == "__main__":
-   # app.run(debug=True)
-
-    #change the path to dir later
-    json_dir_path = '/home/cs172/IRProjectPhase2/doc_folder'
-    path_obj = Paths.get(json_dir_path)
-    ##create_index_json_files(path_obj)
-    query = "dog house"
-    posts = retrieve_posts_pylucene(path_obj, query)
-    filter_results = order_posts(posts, query, 0.5,0.3,0.2)
-
+app.run(host="0.0.0.0", port=5500)
 
