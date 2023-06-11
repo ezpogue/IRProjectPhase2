@@ -195,7 +195,7 @@ def start():
 def query():
     if request.method == 'POST':
         query = request.form['query']
-        query = query.strip()
+        query = query.strip().lower()
         sort = request.form['sort']
         lucene.getVMEnv().attachCurrentThread()
         posts = retrieve_posts_pylucene(path_obj, query)
