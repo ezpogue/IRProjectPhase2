@@ -1,0 +1,19 @@
+<!DOCTYPE html> 
+<html lang="en">
+	<head>
+		<link rel="stylesheet" href="{{ url_for('static', filename='styles/styles.css')}}">
+		<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Quicksand">
+		<meta charset="UTF-8">
+		<title>Reddit Search</title>
+	</head>
+	<div class="headcontainer">
+		<img src="{{ url_for('static', filename='reddit-4.svg')}}">
+		<h1>Reddit Search</h1>
+	</div>
+	<body class="container">
+		<form class="bar" method="POST">
+			<input type="search" placeholder="Search..." name="query">
+			<button type="submit"><img src="{{ url_for('static', filename='icons8-search.svg')}}"></button>
+		</form>
+	</body>
+</html>

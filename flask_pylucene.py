@@ -7,14 +7,16 @@ logging.disable(sys.maxsize)
 import os
 import json
 import lucene
+import math
 from datetime import datetime
 from java.nio.file import Paths
 from org.apache.lucene.store import NIOFSDirectory, MMapDirectory, SimpleFSDirectory
 from org.apache.lucene.analysis.standard import StandardAnalyzer
-from org.apache.lucene.document import Document, Field, TextField, FieldType, StringField
+from org.apache.lucene.analysis.core import StopAnalyzer
+from org.apache.lucene.document import Document, Field, TextField, FieldType, StringField, StoredField
 from org.apache.lucene.queryparser.classic import QueryParser, MultiFieldQueryParser
 from org.apache.lucene.index import IndexWriter, IndexWriterConfig, FieldInfo, IndexOptions, DirectoryReader, Term
-from org.apache.lucene.search import IndexSearcher, BoostQuery, Query, TermQuery
+from org.apache.lucene.search import IndexSearcher, BoostQuery, Query, TermQuery, BooleanQuery, BooleanClause
 from org.apache.lucene.search.similarities import BM25Similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -26,7 +28,7 @@ def create_index_json_files(directory_path):
     analyzer = StandardAnalyzer()
     config = IndexWriterConfig(analyzer)
     config.setOpenMode(IndexWriterConfig.OpenMode.CREATE)
-    
+
     metaType = FieldType()
     metaType.setStored(True)
     metaType.setTokenized(False)
@@ -43,8 +45,8 @@ def create_index_json_files(directory_path):
         for file_name in os.listdir(str(directory_path)):
             if file_name.endswith(".json"):
                 file_path = os.path.join(str(directory_path), file_name)
-                with open(file_path, "r") as json_file:                        
-                    for line in json_file:   
+                with open(file_path, "r") as json_file:
+                    for line in json_file:
                         json_data = json.loads(line)
                         doc = Document()
                         doc.add(Field("ID", json_data["ID"], metaType))
@@ -57,32 +59,26 @@ def create_index_json_files(directory_path):
                         doc.add(Field("Permalink", json_data["Permalink"], metaType))
                         doc.add(Field("URL", json_data["URL"], metaType))
                         
-                        text_urls = []
-                        for text_url_data in json_data["Text URL"]:
-                            text_url = Document()
-                            text_url.add(Field("Title", text_url_data[0], contextType))
-                            text_url.add(Field("Link", text_url_data[1], metaType))
-                            text_urls.append(text_url)
-                        doc.add(Field("Text URL", text_urls, metaType))
+                        #Now a json dump
+                        if len(json_data["Text URL"]) > 0:
+                            doc.add(StringField("Text URL", json.dumps(json_data["Text URL"]), StringField.Store.YES))
+                        else:
+                            doc.add(StringField("Text URL", "", StringField.Store.YES))
                         
-                        comments = []
-                        for comment_data in json_data["Comments"]:
-                            comment = Document()
-                            comment.add(Field("Author"), comment_data["Author"], metaType)
-                            comment.add(Field("Parent ID"), comment_data["Parent ID"], metaType)
-                            comment.add(Field("Body"), comment_data["Body"], contextType)
-                            comment.add(Field("Upvotes"), comment_data["Ups"], metaType)
-                            comment.add(Field("Downvotes"), comment_data["Downs"], metaType)
-                            comment.add(Field("Permalink"), comment_data["Permalink"], metaType)
-                            
-                            comment_text_urls = []
-                            for comment_text_url_data in json_data["Text URL"]:
-                                comment_text_url = Document()
-                                comment_text_url.add(Field("Title", comment_text_url_data[0], contextType))
-                                comment_text_url.add(Field("Link", comment_text_url_data[1], metaType))
-                                comment_text_urls.append(text_url)
-                            comment.add(Field("Text URL", text_urls, metaType))
-                        doc.add(Field("Comments", comments, metaType))
+                        #Take all the comments
+                        flatten_comment_body = ""
+                        for comment in json_data["Comments"]:
+                            if json_data["Comments"][comment] is not None and "Body" in json_data["Comments"][comment] and json_data["Comments"][comment]["Body"] is not None:
+                                flatten_comment_body += " " + json_data["Comments"][comment]["Body"]
+                        doc.add(Field("Comments", flatten_comment_body, contextType))
+                        
+                        #Create a DB or way to store and retrieve files for this comment data, this can be added on a later date.
+                        '''
+                        if len(json_data["Comments"]) > 0:
+                            doc.add(StringField("Text URL", json.dumps(json_data["Comments"]), StringField.Store.YES))
+                        else:
+                            doc.add(StringField("Text URL", "", StringField.Store.YES))
+                        '''
                         writer.addDocument(doc)
         writer.close()
         print("Index created.")
@@ -108,7 +104,7 @@ def create_index_json_files(directory_path):
         timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")   # convert the timestamp string to datetime
 
         time_diff = (datetime.now() - timestamp).total_seconds() / 86400    # calculate the time difference in days
-        time_score = int(100 / (time_diff /30+ 1))                             # +1 to avoid division by 0
+        time_score = int(100 / (time_diff + 1))                             # +1 to avoid division by 0
 
         upvotes = int(post['Upvotes']) if post['Upvotes'] is not None else 0
 
@@ -125,38 +121,46 @@ def create_index_json_files(directory_path):
     
 def order_posts(posts, query, upvote_weight, time_weight, relevance_weight):
     ordered_posts = []
+    title_weight = 0.3
+    body_weight = 0.6
+    comment_weight = 0.1
 
-    # Calculate the query vector using TF-IDF
-    vectorizer = TfidfVectorizer()
+    vectorizer = TfidfVectorizer(stop_words='english')
     query_vector = vectorizer.fit_transform([query])
-
+    
     for post in posts:
         relevance_score = post['Score'] if post['Score'] is not None else 0
         title_similarity = 0
         body_similarity = 0
+        comment_similarity = 0
+
         if post['Title'] is not None:
             if query.lower() in post['Title'].lower():
-                # Calculate the title vector using TF-IDF
                 title_vector = vectorizer.transform([post['Title']])
-                # Calculate the cosine similarity between query and title
                 title_similarity = cosine_similarity(query_vector, title_vector)[0][0]
-                # Update relevance score with title similarity
-                relevance_score += title_similarity * post['Score']
+                relevance_score += title_weight * title_similarity * post['Score']
 
         if post['Body'] is not None:
             if query.lower() in post['Body'].lower():
-                # Calculate the body vector using TF-IDF
                 body_vector = vectorizer.transform([post['Body']])
-                # Calculate the cosine similarity between query and body
                 body_similarity = cosine_similarity(query_vector, body_vector)[0][0]
-                # Update relevance score with body similarity
-                relevance_score += body_similarity * post['Score']
+                relevance_score += body_weight * body_similarity * post['Score']
+                
+        if 'Comments' in post and post['Comments'] is not None:
+            flatten_comment_body = ""
+            for comment in post['Comments']:
+                if comment['Body'] is not None:
+                    flatten_comment_body += " " + comment['Body']
+            if query.lower() in flatten_comment_body.lower():
+                comment_vector = vectorizer.transform([flatten_comment_body])
+                comment_similarity = cosine_similarity(query_vector, comment_vector)[0][0]
+                relevance_score += comment_weight * comment_similarity * post['Score']
 
         timestamp_str = post['Timestamp']
-        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")   # convert the timestamp string to datetime
+        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
 
-        time_diff = (datetime.now() - timestamp).total_seconds() / 86400    # calculate the time difference in days
-        time_score = int(100 / (time_diff / 30 + 1))                        # +1 to avoid division by 0
+        time_diff = (datetime.now() - timestamp).total_seconds() / 86400
+        time_score = int(100 / (time_diff / 30 + 1))
 
         upvotes = int(post['Upvotes']) if post['Upvotes'] is not None else 0
 
@@ -164,20 +168,24 @@ def order_posts(posts, query, upvote_weight, time_weight, relevance_weight):
         ordered_posts.append((post, score))
     ordered_posts.sort(key=lambda x: x[1], reverse=True)
 
+
     for post, score in ordered_posts[:10]:
         print("Post: {}, Weighted Score: {}".format(post, score))
 
     return ordered_posts
 
-
+'''
 def retrieve_posts_pylucene(storedir, query):
+    analyzer = StandardAnalyzer()
     searchDir = NIOFSDirectory(storedir)
     searcher = IndexSearcher(DirectoryReader.open(searchDir))
 
-    parser = MultiFieldQueryParser(['Title', 'Body'], StandardAnalyzer())
-    term = Term("Body", query)              # Create a Term object for the query string
-    termQuery = TermQuery(term)             # Create a TermQuery using the Term object
-
+    
+    
+    print(tokens)
+    boolean_query = BooleanQuery.Builder()
+    
+    
     topDocs = searcher.search(termQuery, 30).scoreDocs     # get top 30 then select 10 highest weighted score posts
 
     top_results = []
@@ -190,6 +198,40 @@ def retrieve_posts_pylucene(storedir, query):
         top_results.append({"Score": hit.score, "Title": title, "Body": body, "Upvotes": votes, "Timestamp": timestamp})
     
     return top_results
+'''
+
+
+def retrieve_posts_pylucene(storedir, query):
+    searchDir = NIOFSDirectory(storedir)
+    searcher = IndexSearcher(DirectoryReader.open(searchDir))
+
+    analyzer = StandardAnalyzer()
+    parser = MultiFieldQueryParser(['Title', 'Body', 'Comment'], analyzer)
+
+    query_terms = query.split()
+    boolean_query = BooleanQuery.Builder()
+    
+    for term in query_terms:
+        term_query = TermQuery(Term("Title", term))
+        boolean_query.add(term_query, BooleanClause.Occur.SHOULD)
+        term_query = TermQuery(Term("Body", term))
+        boolean_query.add(term_query, BooleanClause.Occur.SHOULD)
+        term_query = TermQuery(Term("Comment", term))
+        boolean_query.add(term_query, BooleanClause.Occur.SHOULD)
+
+    topDocs = searcher.search(boolean_query.build(), 100).scoreDocs
+
+    top_results = []
+    for hit in topDocs:
+        doc = searcher.doc(hit.doc)
+        title = doc.get("Title")  
+        body = doc.get("Body")
+        votes = doc.get("Upvotes")
+        timestamp = doc.get("Timestamp")
+        top_results.append({"Score": hit.score, "Title": title, "Body": body, "Upvotes": votes, "Timestamp": timestamp})
+    return top_results
+
+
 
 '''
 @app.route("/")
@@ -226,7 +268,9 @@ if __name__ == "__main__":
     #change the path to dir later
     json_dir_path = '/home/cs172/IRProjectPhase2/doc_folder'
     path_obj = Paths.get(json_dir_path)
-    #create_index_json_files(path_obj)
-    query = 'embarrassing'
+    ##create_index_json_files(path_obj)
+    query = "dog house"
     posts = retrieve_posts_pylucene(path_obj, query)
-    fianl_result = order_posts(posts, query)
+    filter_results = order_posts(posts, query, 0.5,0.3,0.2)
+
+
